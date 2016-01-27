@@ -3,6 +3,7 @@ package org.embulk.output.redshift;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.List;
 import org.slf4j.Logger;
 import org.embulk.spi.Exec;
 import org.embulk.output.jdbc.JdbcOutputConnection;
@@ -118,5 +119,67 @@ public class RedshiftOutputConnection
         } finally {
             stmt.close();
         }
+    }
+
+    @Override
+    protected String buildCollectMergeSql(List<String> fromTables, JdbcSchema schema, String toTable, List<String> mergeKeys) throws SQLException
+    {
+        StringBuilder sb = new StringBuilder();
+
+        for (String fromTable : fromTables) {
+            // update
+            sb.append("UPDATE ");
+            quoteIdentifierString(sb, toTable);
+            sb.append(" SET ");
+            for (int i = 0; i < schema.getCount(); i++) {
+                if (i != 0) { sb.append(", "); }
+                quoteIdentifierString(sb, schema.getColumnName(i));
+                sb.append(" = ");
+                quoteIdentifierString(sb, fromTable);
+                sb.append(".");
+                quoteIdentifierString(sb, schema.getColumnName(i));
+            }
+            sb.append(" FROM ");
+            quoteIdentifierString(sb, fromTable);
+            sb.append(" WHERE ");
+            for (int i = 0; i < mergeKeys.size(); i++) {
+                if (i != 0) { sb.append(" AND "); }
+                quoteIdentifierString(sb, toTable);
+                sb.append(".");
+                quoteIdentifierString(sb, mergeKeys.get(i));
+                sb.append(" = ");
+                quoteIdentifierString(sb, fromTable);
+                sb.append(".");
+                quoteIdentifierString(sb, mergeKeys.get(i));
+            }
+            sb.append(";");
+
+            // insert
+            sb.append("INSERT INTO ");
+            quoteIdentifierString(sb, toTable);
+            sb.append(" SELECT ");
+            quoteIdentifierString(sb, fromTable);
+            sb.append(".* FROM ");
+            quoteIdentifierString(sb, fromTable);
+            sb.append(" LEFT JOIN ");
+            quoteIdentifierString(sb, toTable);
+            sb.append(" ON ");
+            for (int i = 0; i < mergeKeys.size(); i++) {
+                if (i != 0) { sb.append(" AND "); }
+                quoteIdentifierString(sb, fromTable);
+                sb.append(".");
+                quoteIdentifierString(sb, mergeKeys.get(i));
+                sb.append(" = ");
+                quoteIdentifierString(sb, toTable);
+                sb.append(".");
+                quoteIdentifierString(sb, mergeKeys.get(i));
+            }
+            sb.append(" WHERE ");
+            quoteIdentifierString(sb, toTable);
+            sb.append(".");
+            quoteIdentifierString(sb, mergeKeys.get(0));
+            sb.append(" IS NULL;");
+        }
+        return sb.toString();
     }
 }
